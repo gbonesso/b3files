@@ -1,4 +1,4 @@
-# Product Name
+# b3files
 > This is a Python lib to help to decode the public files available from Brazilian Stock Exchange - B3.
 
 ## Release History
