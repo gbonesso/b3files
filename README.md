@@ -10,6 +10,6 @@
 
 Gustavo Bonesso – gustavo_bonesso@hotmail.com.com
 
-Distributed under the XYZ license. See ``LICENSE`` for more information.
+Distributed under the MIT License. See ``LICENSE`` for more information.
 
 [https://https://github.com/gbonesso](https://github.com/gbonesso)    
