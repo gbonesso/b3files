@@ -19,55 +19,61 @@ print(check_output(["ls", "."]).decode("utf8"))
 # Any results you write to the current directory are saved as output.
 
 # Here we'll specify the columns width
-widths = [2, 8, 2, 12, 3, 12,
-          10, 3, 4, 13, 13, 13, 13, 13, 13, 13, 5, 18,
-          18, 13, 1, 8, 7, 13, 12, 3]
+__widths = [2, 8, 2, 12, 3, 12,
+            10, 3, 4, 13, 13, 13, 13, 13, 13, 13, 5, 18,
+            18, 13, 1, 8, 7, 13, 12, 3]
 
 # and the columns names, based in the original specification
-column_names = ['TIPREG', 'DATPRE', 'CODBDI', 'CODNEG', 'TPMERC', 'NOMRES', 'ESPECI', 'PRAZOT',
-                'MODREF', 'PREABE', 'PREMAX', 'PREMIN', 'PREMED', 'PREULT', 'PREOFC', 'PREOFV',
-                'TOTNEG', 'QUATOT', 'VOLTOT', 'PREEXE', 'INDOPC', 'DATVEN', 'FATCOT', 'PTOEXE',
-                'CODISI', 'DISMES']
+__column_names = ['TIPREG', 'DATPRE', 'CODBDI', 'CODNEG', 'TPMERC', 'NOMRES', 'ESPECI', 'PRAZOT',
+                  'MODREF', 'PREABE', 'PREMAX', 'PREMIN', 'PREMED', 'PREULT', 'PREOFC', 'PREOFV',
+                  'TOTNEG', 'QUATOT', 'VOLTOT', 'PREEXE', 'INDOPC', 'DATVEN', 'FATCOT', 'PTOEXE',
+                  'CODISI', 'DISMES']
 
 # Most of the prices are defined with two decimals.
 # This function is used to adjust this while loading...
-def convert_price(s):
+def _convert_price(s):
     return (float(s) / 100.0)
 
 # The date fields are in the format YYYYMMDD
-def convert_date(d):
+def _convert_date(d):
     struct = time.strptime(d, '%Y%m%d')
     dt = datetime.fromtimestamp(time.mktime(struct))
     return(dt)
 
 # Specify dtype while loading
-dtype_dict = {
+__dtype_dict = {
     'TOTNEG':np.int32
 }
 
 # Use the functions defined above to convert data while loading
-convert_dict = {
-    'DATPRE':convert_date,
-    'PREABE':convert_price, 'PREMAX':convert_price,
-    'PREMIN':convert_price,
-    'PREMED':convert_price, 'PREULT':convert_price, 'PREOFC':convert_price,
-    'PREOFV':convert_price,
-    'DATVEN':convert_date,
+__convert_dict = {
+    'DATPRE':_convert_date,
+    'PREABE':_convert_price, 'PREMAX':_convert_price,
+    'PREMIN':_convert_price,
+    'PREMED':_convert_price, 'PREULT':_convert_price, 'PREOFC':_convert_price,
+    'PREOFV':_convert_price,
+    'DATVEN':_convert_date,
 }
 
-# Load the raw file
 def load_and_preprocess(file_path):
+    """Loads the raw file.
+    Parameters:
+       file_path (str): inform the file path of the raw file to be loaded
+    Returns:
+       df: a dataframe with the decode data
+    """
     df = pd.read_fwf(
         file_path,
-        widths=widths,
-        names=column_names,
-        dtype=dtype_dict,
-        converters=convert_dict,
+        widths=__widths,
+        names=__column_names,
+        dtype=__dtype_dict,
+        converters=__convert_dict,
         #compression='zip',
         skiprows=1,              # Skip the header row
         skipfooter=1             # Skip the footer row
     )
-    return(df)
+    return df
+
 
 import zipfile
 
@@ -96,7 +102,6 @@ def main():
     with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2019.ZIP", "r") as z:
         z.extractall(".")
 
-
     # Read all files and concatenate in one Dataframe
     df1 = load_and_preprocess("./COTAHIST_A2009.TXT")
     df2 = df1.append(load_and_preprocess("./COTAHIST_A2010.TXT"), ignore_index=True)
@@ -114,6 +119,3 @@ def main():
     df.head()
 
     df.to_csv('COTAHIST_A2009_to_A2019.csv')
-
-if __name__ == "__main__":
-    main()
