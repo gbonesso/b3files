@@ -1,22 +1,9 @@
-# This Python 3 environment comes with many helpful analytics libraries installed
-# It is defined by the kaggle/python docker image: https://github.com/kaggle/docker-python
-# For example, here's several helpful packages to load in
-
-
-import numpy as np   # linear algebra
+import numpy as np  # linear algebra
 import pandas as pd  # data processing, CSV file I/O (e.g. pd.read_csv)
-
-import time
 from datetime import datetime
-
-# Input data files are available in the "../input/" directory.
-# For example, running this (by clicking run or pressing Shift+Enter) will list the files in the input directory
-
-from subprocess import check_output
-print(check_output(["ls", "./cotacoes_historicas"]).decode("utf8"))
-print(check_output(["ls", "."]).decode("utf8"))
-
-# Any results you write to the current directory are saved as output.
+import os
+import zipfile
+import logging
 
 # Here we'll specify the columns width
 __widths = [2, 8, 2, 12, 3, 12,
@@ -24,38 +11,114 @@ __widths = [2, 8, 2, 12, 3, 12,
             18, 13, 1, 8, 7, 13, 12, 3]
 
 # and the columns names, based in the original specification
-__column_names = ['TIPREG', 'DATPRE', 'CODBDI', 'CODNEG', 'TPMERC', 'NOMRES', 'ESPECI', 'PRAZOT',
-                  'MODREF', 'PREABE', 'PREMAX', 'PREMIN', 'PREMED', 'PREULT', 'PREOFC', 'PREOFV',
-                  'TOTNEG', 'QUATOT', 'VOLTOT', 'PREEXE', 'INDOPC', 'DATVEN', 'FATCOT', 'PTOEXE',
-                  'CODISI', 'DISMES']
+__column_names = [
+    'TIPREG',  # Tipo de Registro - Fixo = "01"
+    'DATPRE',  # Data do pregão - "AAAAMMDD"
+    'CODBDI',  # Código BDI - Precisa de tabela auxiliar
+    'CODNEG',  # Código de negociação do papel
+    'TPMERC',  # Tipo de mercado - (Vista, Termo, etc...) Precisa de tabela auxiliar
+    'NOMRES',  # Nome resumido da empresa emissora do papel
+    'ESPECI',  # Especificação do papel - (ON, PN, LFT, etc...) Precisa de tabela auxiliar
+    'PRAZOT',  # Prazo em dias do mercado a termo
+    'MODREF',  # Moeda de referência usada na data do pregão
+    'PREABE',  # Preço de abertura do papel no pregão
+    'PREMAX', 'PREMIN', 'PREMED', 'PREULT', 'PREOFC', 'PREOFV',
+    'TOTNEG', 'QUATOT', 'VOLTOT', 'PREEXE', 'INDOPC', 'DATVEN', 'FATCOT', 'PTOEXE',
+    'CODISI', 'DISMES']
 
-# Most of the prices are defined with two decimals.
-# This function is used to adjust this while loading...
-def _convert_price(s):
-    return (float(s) / 100.0)
 
-# The date fields are in the format YYYYMMDD
+def _convert_price(raw_price):
+    """Convert the prices, adjusting for two decimals while loading the raw file.
+    Parameters:
+       raw_price (str): The price to be converted, the last two characters are the decimals.
+    Returns:
+       (float64): Converted price.
+    """
+    return float(raw_price) / 100.0
+
+
 def _convert_date(d):
-    struct = time.strptime(d, '%Y%m%d')
-    dt = datetime.fromtimestamp(time.mktime(struct))
-    return(dt)
+    """Convert the raw date information.
+    The raw file uses '9999' in the year to indicate an invalid year.
+    Parameters:
+       d (str): The field format is 'YYYYMMDD'.
+    Returns:
+       dt (datetime64): Decoded date.
+    """
+    if d.startswith('9999'):
+        return None
+    try:
+        dt = datetime.strptime(d, '%Y%m%d')
+        return dt
+    except ValueError:
+        return None
+
 
 # Specify dtype while loading
 __dtype_dict = {
-    'TOTNEG':np.int32
+    'TOTNEG': np.int32
 }
 
 # Use the functions defined above to convert data while loading
 __convert_dict = {
-    'DATPRE':_convert_date,
-    'PREABE':_convert_price, 'PREMAX':_convert_price,
-    'PREMIN':_convert_price,
-    'PREMED':_convert_price, 'PREULT':_convert_price, 'PREOFC':_convert_price,
-    'PREOFV':_convert_price,
-    'DATVEN':_convert_date,
+    'DATPRE': _convert_date,
+    'PREABE': _convert_price, 'PREMAX': _convert_price,
+    'PREMIN': _convert_price,
+    'PREMED': _convert_price, 'PREULT': _convert_price, 'PREOFC': _convert_price,
+    'PREOFV': _convert_price,
+    'DATVEN': _convert_date,
 }
 
-def load_and_preprocess(file_path):
+
+def load_dir(dir_base):
+    """Loads all the raw files in a given directory.
+    Parameters:
+       dir_base (str): inform the path of the directory to be loaded
+    Returns:
+       df: a dataframe with the decoded data
+    """
+
+    df = pd.DataFrame()  # Creates an empty Dataframe to append all the raw files
+    logging.debug('load_dir::dir_base: {}'.format(dir_base))
+
+    for dir_name, _, filenames in os.walk(dir_base):
+        for filename in filenames:
+            logging.debug(os.path.join(dir_name, filename))
+            '''z_file = zipfile.ZipFile(os.path.join(dir_name, filename))
+            files = z_file.namelist()
+            with z_file.open(files[0]) as raw_file:
+                # logging.debug(raw_file.readline())  # o readline() muda o ponteiro do arquivo? Estava perdendo duas linhas de dados?
+                # logging.debug(raw_file.readline())
+                df_temp = load_file(raw_file)'''
+            df_temp = load_zipfile(os.path.join(dir_name, filename))
+            logging.debug('File: {} #rows: {}'.format(
+                os.path.join(dir_name, filename), df_temp.shape[0]))  # shape[0] = Number of rows...
+            df = df.append(df_temp, ignore_index=True)
+
+    logging.debug('Total df rows: {}'.format(df.shape[0]))
+    return df
+
+
+def load_zipfile(zip_file_path):
+    """Loads one zipped file
+    Parameters:
+       zip_file_path (str): inform the path of the zipped file to be loaded
+    Returns:
+       df: a dataframe with the decoded data
+    """
+
+    # df = pd.DataFrame()  # Creates an empty Dataframe to append all the raw files
+    logging.debug('load_zipfile::zip_file_path: {}'.format(zip_file_path))
+
+    z_file = zipfile.ZipFile(os.path.join(zip_file_path))
+    files = z_file.namelist()
+    with z_file.open(files[0]) as raw_file:
+        df = load_file(raw_file)
+
+    return df
+
+
+def load_file(file_path):
     """Loads the raw file.
     Parameters:
        file_path (str): inform the file path of the raw file to be loaded
@@ -68,54 +131,7 @@ def load_and_preprocess(file_path):
         names=__column_names,
         dtype=__dtype_dict,
         converters=__convert_dict,
-        #compression='zip',
-        skiprows=1,              # Skip the header row
-        skipfooter=1             # Skip the footer row
+        skiprows=1,  # Skip the header row
+        skipfooter=1  # Skip the footer row
     )
     return df
-
-
-import zipfile
-
-def main():
-    # Will unzip the files so that you can see them..
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2009.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2010.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2011.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2012.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2013.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2014.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2015.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2016.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2017.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2018.ZIP", "r") as z:
-        z.extractall(".")
-    with zipfile.ZipFile("./cotacoes_historicas/COTAHIST_A2019.ZIP", "r") as z:
-        z.extractall(".")
-
-    # Read all files and concatenate in one Dataframe
-    df1 = load_and_preprocess("./COTAHIST_A2009.TXT")
-    df2 = df1.append(load_and_preprocess("./COTAHIST_A2010.TXT"), ignore_index=True)
-    df3 = df2.append(load_and_preprocess("./COTAHIST_A2011.TXT"), ignore_index=True)
-    df4 = df3.append(load_and_preprocess("./COTAHIST_A2012.TXT"), ignore_index=True)
-    df5 = df4.append(load_and_preprocess("./COTAHIST_A2013.TXT"), ignore_index=True)
-    df6 = df5.append(load_and_preprocess("./COTAHIST_A2014.TXT"), ignore_index=True)
-    df7 = df6.append(load_and_preprocess("./COTAHIST_A2015.TXT"), ignore_index=True)
-    df8 = df7.append(load_and_preprocess("./COTAHIST_A2016.TXT"), ignore_index=True)
-    df9 = df8.append(load_and_preprocess("./COTAHIST_A2017.TXT"), ignore_index=True)
-    df10 = df9.append(load_and_preprocess("./COTAHIST_A2018.TXT"), ignore_index=True) # New file with full 2018 data (previous was partial)
-    df  = df10.append(load_and_preprocess("./COTAHIST_A2019.TXT"), ignore_index=True) # New file with full 2019 data
-
-    pd.set_option('display.max_columns', 26)
-    df.head()
-
-    df.to_csv('COTAHIST_A2009_to_A2019.csv')
